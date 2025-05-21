@@ -1,36 +1,94 @@
-name: Build and Push Multi-Arch Docker Image
+name: Auto Build & Push tcpdump Image on New Alpine Release
 
 on:
-  push:
-    branches:
-      - main
+  schedule:
+    - cron: '0 3 * * *'   # Daily at 3 AM UTC
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  check-and-build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install dependencies
+        run: sudo apt-get install -y curl jq
+
+      - name: Get latest tcpdump version from Alpine
+        id: get_version
+        run: |
+          LATEST_VERSION=$(curl -s 'https://pkgs.alpinelinux.org/packages?name=tcpdump&branch=edge' | \
+            grep -oP 'tcpdump-\K[0-9]+\.[0-9]+\.[0-9]+' | sort -Vr | head -n1)
+          echo "version=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if version is new
+        id: check_version
+        run: |
+          VERSION_FILE=".github/cache/tcpdump_version.txt"
+          mkdir -p "$(dirname "$VERSION_FILE")"
+          KNOWN_VERSION=$(cat $VERSION_FILE 2>/dev/null || echo "none")
+          if [ "$KNOWN_VERSION" != "${{ steps.get_version.outputs.version }}" ]; then
+            echo "update_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "update_needed=false" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
+        if: steps.check_version.outputs.update_needed == 'true'
         uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+          driver-opts: network=host
 
       - name: Log in to GitHub Container Registry
+        if: steps.check_version.outputs.update_needed == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push multi-arch image
+      - name: Build test image locally (amd64)
+        if: steps.check_version.outputs.update_needed == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: tcpdump:test
+
+      - name: Test tcpdump functionality (amd64 only)
+        if: steps.check_version.outputs.update_needed == 'true'
+        run: |
+          docker run --rm tcpdump:test --version | grep -q "tcpdump version" && echo "Test passed" || exit 1
+
+      - name: Rebuild and push multi-arch image
+        if: steps.check_version.outputs.update_needed == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository_owner }}/tcpdump:latest
+          platforms: |
+            linux/amd64
+            linux/arm64
+            linux/arm/v7
+            linux/s390x
+            linux/ppc64le
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/tcpdump:latest
+            ghcr.io/${{ github.repository_owner }}/tcpdump:${{ steps.get_version.outputs.version }}
+
+      - name: Update tracked version file
+        if: steps.check_version.outputs.update_needed == 'true'
+        run: |
+          VERSION_FILE=".github/cache/tcpdump_version.txt"
+          echo "${{ steps.get_version.outputs.version }}" > $VERSION_FILE
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add $VERSION_FILE
+          git commit -m "Update tcpdump version to ${{ steps.get_version.outputs.version }}"
+          git push
