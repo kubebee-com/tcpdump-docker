@@ -36,6 +36,7 @@ jobs:
             echo "update_needed=true" >> "$GITHUB_OUTPUT"
           else
             echo "update_needed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Docker Buildx
         if: steps.check_version.outputs.update_needed == 'true'
