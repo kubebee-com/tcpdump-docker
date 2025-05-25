@@ -1,4 +1,4 @@
-name: Auto Build & Push tcpdump Image on New Alpine Release
+name: Build & Push Docker Images
 
 on:
   push:
@@ -9,53 +9,38 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-and-build:
+  build-and-push-images:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
-
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [] # This will be populated by the list_images step
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: sudo apt-get install -y curl jq
-
-      - name: Get latest tcpdump version from Alpine
-        id: get_version
+      - name: List images for matrix
+        id: list_images
         run: |
-          read VERSION_FULL VERSION_SHORT <<< $( \
-          curl -s https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/APKINDEX.tar.gz \
-          | tar -xzO APKINDEX 2>/dev/null \
-          | grep -A 2 -m 1 '^P:tcpdump$' \
-          | awk -F: '/^V:/{print $2, gensub(/-r[0-9]+$/, "", "g", $2)}' \
-          )
+          IMAGES=$(ls docker | tr '\n' ' ')
+          echo "images_json=[\"$(echo $IMAGES | sed 's/ /","/g')\"]" >> $GITHUB_OUTPUT
 
-          echo "version_full=$VERSION_FULL" >> "$GITHUB_OUTPUT"
-          echo "version_short=$VERSION_SHORT" >> "$GITHUB_OUTPUT"
-
-      - name: Check if version is new
-        id: check_version
+      - name: Set matrix for job
         run: |
-          VERSION_FILE=".github/cache/tcpdump_version.txt"
-          mkdir -p "$(dirname "$VERSION_FILE")"
-          KNOWN_VERSION=$(cat $VERSION_FILE 2>/dev/null || echo "none")
-          if [ "$KNOWN_VERSION" != "${{ steps.get_version.outputs.version_full }}" ]; then
-            echo "update_needed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "update_needed=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "Using images: ${{ steps.list_images.outputs.images_json }}"
+          echo "::set-output name=matrix::{\"image\":${{ steps.list_images.outputs.images_json }}}"
+        id: set_matrix # Give this step an id to reference its output if needed later, though matrix is set directly for the job
 
       - name: Set up Docker Buildx
-        if: steps.check_version.outputs.update_needed == 'true'
         uses: docker/setup-buildx-action@v3
         with:
           install: true
           driver-opts: network=host
 
       - name: Log in to GitHub Container Registry
-        if: steps.check_version.outputs.update_needed == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -63,31 +48,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: steps.check_version.outputs.update_needed == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build test image locally (amd64)
-        if: steps.check_version.outputs.update_needed == 'true'
+      - name: Build and push multi-arch image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          load: true
-          platforms: linux/amd64
-          tags: tcpdump:test
-
-      - name: Test tcpdump functionality (amd64 only)
-        if: steps.check_version.outputs.update_needed == 'true'
-        run: |
-          docker run --rm tcpdump:test --version | grep -q "tcpdump version" && echo "Test passed" || exit 1
-
-      - name: Rebuild and push multi-arch image
-        if: steps.check_version.outputs.update_needed == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
+          context: docker/${{ matrix.image }}
+          file: docker/${{ matrix.image }}/Dockerfile
           push: true
           platforms: |
             linux/amd64
@@ -96,20 +66,7 @@ jobs:
             linux/s390x
             linux/ppc64le
           tags: |
-            ghcr.io/${{ github.repository_owner }}/tcpdump:latest
-            ghcr.io/${{ github.repository_owner }}/tcpdump:${{ steps.get_version.outputs.version_full }}
-            ghcr.io/${{ github.repository_owner }}/tcpdump:${{ steps.get_version.outputs.version_short }}
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/tcpdump:latest
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/tcpdump:${{ steps.get_version.outputs.version_full }}
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/tcpdump:${{ steps.get_version.outputs.version_short }}
-
-      - name: Update tracked version file
-        if: steps.check_version.outputs.update_needed == 'true'
-        run: |
-          VERSION_FILE=".github/cache/tcpdump_version.txt"
-          echo "${{ steps.get_version.outputs.version }}" > $VERSION_FILE
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          git add $VERSION_FILE
-          git commit -m "Update tcpdump version to ${{ steps.get_version.outputs.version_full }}"
-          git push
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ github.sha }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ github.sha }}
