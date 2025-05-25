@@ -20,7 +20,7 @@ RUN g++ main.cpp -o netdiag -static
 # Adapting logic from the original docker/tcpdump/Dockerfile
 #==============================================================================
 ARG DEBIAN_VERSION=12 # As per original tcpdump Dockerfile for this stage
-FROM debian:${DEBIAN_VERSION}-slim AS tcpdump-prep-builder-base
+FROM debian:12-slim AS tcpdump-prep-builder-base
 
 # Copy base /etc/group and /etc/passwd from a distroless image to modify
 FROM gcr.io/distroless/base-debian${DEBIAN_VERSION} AS tcpdump-distroless-files
@@ -198,7 +198,7 @@ ARG DEBIAN_VERSION=12 # Match version used for distroless base
 
 LABEL org.opencontainers.image.authors="kevin@kubebee.com"
 LABEL org.opencontainers.image.architecture=${TARGETPLATFORM}
-LABEL name="nettool"
+LABEL name="nettools"
 LABEL version="debian${DEBIAN_VERSION}-distroless"
 
 WORKDIR /
