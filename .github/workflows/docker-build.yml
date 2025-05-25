@@ -24,7 +24,7 @@ jobs:
       - name: Generate image matrix string
         id: generate_matrix
         run: |
-          IMAGES_JSON=$(ls -1 docker/ | grep -v '^$' | jq -R . | jq -s .)
+          IMAGES_JSON=$(ls -1 docker/ | grep -v '^$' | jq -R . | jq -cs .)
           echo "matrix_string=${IMAGES_JSON}" >> $GITHUB_OUTPUT
           echo "Generated matrix: ${IMAGES_JSON}"
 
