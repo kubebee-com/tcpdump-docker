@@ -8,30 +8,38 @@ ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    traceroute \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /staging_root && \
-    TRACEROUTE_PATH=$(which traceroute) && \
-    echo "Traceroute found at: $TRACEROUTE_PATH" && \
-    mkdir -p "/staging_root$(dirname "$TRACEROUTE_PATH")" && \
-    cp "$TRACEROUTE_PATH" "/staging_root$TRACEROUTE_PATH" && \
-    chmod +x "/staging_root$TRACEROUTE_PATH" && \
-    # Identify and copy library dependencies
-    ldd "$TRACEROUTE_PATH" | grep "=>" | awk '{print $3}' | grep -v "^$" | while read lib_path; do \
+    apt-get install -y --no-install-recommends traceroute && \
+    rm -rf /var/lib/apt/lists/* && \
+    # Determine actual installed path of traceroute
+    ACTUAL_TRACEROUTE_PATH=$(which traceroute) && \
+    if [ -z "$ACTUAL_TRACEROUTE_PATH" ]; then \
+        echo "Error: traceroute command not found in PATH after installation." >&2; \
+        exit 1; \
+    fi && \
+    echo "Traceroute found at: $ACTUAL_TRACEROUTE_PATH" && \
+    # Define a consistent target path for the binary in staging & final image
+    # This path should match the ENTRYPOINT declaration
+    TARGET_TRACEROUTE_PATH_IN_IMAGE="/usr/bin/traceroute" && \
+    # Create the directory for the binary in staging
+    mkdir -p "/staging_root$(dirname "$TARGET_TRACEROUTE_PATH_IN_IMAGE")" && \
+    # Copy the traceroute binary to the target path in staging
+    cp "$ACTUAL_TRACEROUTE_PATH" "/staging_root$TARGET_TRACEROUTE_PATH_IN_IMAGE" && \
+    chmod +x "/staging_root$TARGET_TRACEROUTE_PATH_IN_IMAGE" && \
+    echo "Staged traceroute to /staging_root$TARGET_TRACEROUTE_PATH_IN_IMAGE" && \
+    # Copy library dependencies based on the actual binary path
+    ldd "$ACTUAL_TRACEROUTE_PATH" | grep "=>" | awk '{print $3}' | grep -v "^$" | while read lib_path; do \
         if [ -f "$lib_path" ]; then \
             mkdir -p "/staging_root$(dirname "$lib_path")"; \
             cp -L "$lib_path" "/staging_root$lib_path"; \
-            echo "Copied $lib_path"; \
+            echo "Copied library: $lib_path"; \
         fi \
     done && \
-    # Also copy the dynamic linker/loader itself if present in ldd output
-    ldd "$TRACEROUTE_PATH" | awk '/\/lib(64|)\/ld-linux(.*)\.so\.([0-9]+)/{print $1}' | while read ld_path; do \
+    # Also copy the dynamic linker/loader itself
+    ldd "$ACTUAL_TRACEROUTE_PATH" | awk '/\/lib(64|)\/ld-linux(.*)\.so\.([0-9]+)/{print $1}' | while read ld_path; do \
         if [ -f "$ld_path" ]; then \
             mkdir -p "/staging_root$(dirname "$ld_path")"; \
             cp -L "$ld_path" "/staging_root$ld_path"; \
-            echo "Copied loader $ld_path"; \
+            echo "Copied dynamic loader: $ld_path"; \
         fi \
     done
 
