@@ -23,6 +23,7 @@ ARG DEBIAN_VERSION=12 # As per original tcpdump Dockerfile for this stage
 FROM debian:12-slim AS tcpdump-prep-builder-base
 
 # Copy base /etc/group and /etc/passwd from a distroless image to modify
+ARG DEBIAN_VERSION=12
 FROM gcr.io/distroless/base-debian${DEBIAN_VERSION} AS tcpdump-distroless-files
 COPY /etc/group /etc/passwd /tmp/distroless-etc/
 
