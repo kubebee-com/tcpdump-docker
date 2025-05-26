@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+ARG DEBIAN_VERSION=12
 
 #==============================================================================
 # Stage 1: netdiag-builder (C++ application)
@@ -19,11 +20,11 @@ RUN g++ main.cpp -o netdiag -static
 # Stage 2: tcpdump-prep
 # Adapting logic from the original docker/tcpdump/Dockerfile
 #==============================================================================
-ARG DEBIAN_VERSION=12 # As per original tcpdump Dockerfile for this stage
+# ARG DEBIAN_VERSION=12 # As per original tcpdump Dockerfile for this stage
 FROM debian:12-slim AS tcpdump-prep-builder-base
 
 # Copy base /etc/group and /etc/passwd from a distroless image to modify
-ARG DEBIAN_VERSION=12
+# ARG DEBIAN_VERSION=12
 FROM gcr.io/distroless/base-debian${DEBIAN_VERSION} AS tcpdump-distroless-files
 COPY /etc/group /etc/passwd /tmp/distroless-etc/
 
@@ -195,7 +196,7 @@ RUN SS_PATH=$(which ss) && \
 #==============================================================================
 FROM gcr.io/distroless/base-debian12 AS nettool-final
 ARG TARGETPLATFORM
-ARG DEBIAN_VERSION=12 # Match version used for distroless base
+# ARG DEBIAN_VERSION=12 # Match version used for distroless base
 
 LABEL org.opencontainers.image.authors="kevin@kubebee.com"
 LABEL org.opencontainers.image.architecture=${TARGETPLATFORM}
