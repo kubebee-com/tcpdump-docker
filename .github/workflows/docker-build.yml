@@ -87,10 +87,6 @@ jobs:
             TEST_CMD="-V"
           elif [ "$IMAGE_NAME" = "nping" ]; then
             TEST_CMD="--version"
-          elif [ "$IMAGE_NAME" = "nettools" ]; then
-            # For nettools, the entrypoint is netdiag; running without args is the test
-            docker run --rm "${IMAGE_NAME}:${TEST_TAG}"
-            exit 0 # Exit successfully if docker run completes
           fi
 
           # General test execution
